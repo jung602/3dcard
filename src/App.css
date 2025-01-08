@@ -1,0 +1,119 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100dvw;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.App {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+canvas {
+  width: 100dvw !important;
+  height: 100dvh !important;
+  touch-action: none;
+}
+
+.card3d {
+  width: 300px;
+  height: 400px;
+  background: linear-gradient(45deg, #ff6b6b, #ff8787);
+  border-radius: 20px;
+  padding: 30px;
+  color: white;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  cursor: pointer;
+}
+
+.card3d h2 {
+  font-size: 2em;
+  margin-bottom: 20px;
+}
+
+.card3d p {
+  font-size: 1.2em;
+  opacity: 0.8;
+}
+
+.view-toggle-btn {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 25px;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  z-index: 1000;
+}
+
+.view-toggle-btn:hover {
+  background-color: rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+
+.cards-container {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.cards-container.fade-out {
+  opacity: 0;
+  transform: translateY(-50px);
+}
+
+.canvas-container {
+  opacity: 0;
+  animation: canvasFadeIn 0.5s ease forwards;
+  animation-delay: 0.5s;
+}
+
+.view-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 10px 20px;
+  background: rgba(51, 51, 51, 0.9);
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  z-index: 1000;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(5px);
+}
+
+.view-toggle:hover {
+  background: rgba(85, 85, 85, 0.9);
+  transform: translateY(-2px);
+}
+
+@keyframes canvasFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
