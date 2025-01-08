@@ -5,60 +5,60 @@ import { Box, Environment, OrthographicCamera, Plane } from '@react-three/drei';
 import * as THREE from 'three';
 import { cardData } from '../data/cardData';
 
-const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, opacity = 1, isTransitioning, transitionDelay, isFiltered }) => {
+const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity = 1, isTransitioning, transitionDelay, data }) => {
   const meshRef = useRef(null);
   const startTimeRef = useRef(null);
   const [hovered, setHovered] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const { gl, size } = useThree();
-  const prevSizeRef = useRef({ width: size.width, height: size.height });
+  const { gl } = useThree();
 
   // 스처와 메테리얼을 useMemo로 최적화
   const materials = useMemo(() => {
-    const textureLoader = new THREE.TextureLoader();
-    const texture = textureLoader.load(data.coverImg);
-    const alphaTexture = textureLoader.load('/images/alpha.png');
-    
-    const frontMaterial = new THREE.MeshStandardMaterial({
+    const glassMaterial = new THREE.MeshStandardMaterial({
       color: '#ffffff',
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide,
+      roughness: .2,
+      metalness: .5,
+      depthWrite: false,
+      envMapIntensity: 1
+    });
+
+    // 앞면 재질에 이미지와 알파 마스크 적용
+    const frontMaterial = new THREE.MeshStandardMaterial({
       transparent: true,
       opacity: 1,
       side: THREE.FrontSide,
-      map: texture,
-      alphaMap: alphaTexture,
+      roughness: 1,
+      metalness: 0,
+      depthWrite: false,
+      envMapIntensity: .5
     });
 
-    const glassMaterial = new THREE.MeshStandardMaterial({
-      color: data.color,
-      transparent: true,
-      opacity: 0.7,
-      side: THREE.DoubleSide,
-      roughness: 1,
-      metalness: 1,
-      alphaMap: alphaTexture,
-    });
+    if (data) {
+      const textureLoader = new THREE.TextureLoader();
+      const texture = textureLoader.load(data.coverImg);
+      const alphaTexture = textureLoader.load('/images/alpha.png');
+      
+      // 텍스처 설정 개선
+      texture.encoding = THREE.sRGBEncoding;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = false;
+      
+      frontMaterial.map = texture;
+      frontMaterial.alphaMap = alphaTexture;
+    }
 
     return [
-      glassMaterial,
-      glassMaterial,
-      glassMaterial,
-      glassMaterial,
-      frontMaterial,
-      glassMaterial
+      glassMaterial, // right
+      glassMaterial, // left
+      glassMaterial, // top
+      glassMaterial, // bottom
+      frontMaterial, // front
+      glassMaterial  // back
     ];
-  }, [data.coverImg, data.color]);
-
-  // 브라우저 크기 변경 감지
-  useEffect(() => {
-    if (prevSizeRef.current.width !== size.width || prevSizeRef.current.height !== size.height) {
-      setIsResizing(true);
-      const timer = setTimeout(() => {
-        setIsResizing(false);
-        prevSizeRef.current = { width: size.width, height: size.height };
-      }, 600); // 애니메이션 duration과 동일하게 설정
-      return () => clearTimeout(timer);
-    }
-  }, [size.width, size.height]);
+  }, [data]);
 
   // hover 효과만을 위한 스프링
   const { hover } = useSpring({
@@ -74,8 +74,6 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, o
   const meshPosition = isSelected 
     ? [0, 0, 0] 
     : position;
-
-  const finalScale = [1, 1, 1];
 
   const handleClick = (e) => {
     if (isOther) {
@@ -118,7 +116,7 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, o
       tooltip.style.mixBlendMode = 'difference';
       tooltip.style.fontWeight = 'normal';
       tooltip.style.pointerEvents = 'none';
-      tooltip.textContent = data.title;
+      tooltip.textContent = data ? data.title : 'Card';
       document.body.appendChild(tooltip);
 
       // 마우스 이동에 따른 툴팁 위치 업데이트
@@ -140,17 +138,23 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, o
         tooltip.remove();
       }
     }
-  }, [hovered, gl, data.title]);
+  }, [hovered, gl, data]);
 
   useEffect(() => {
     if (hovered) {
-      materials[4].color.set('#ff9f9f');
-      materials[0].color.set('#ff9f9f');
+      materials.forEach((material, index) => {
+        if (index !== 4) { // 앞면(4번)을 제외한 나머지만 opacity 변경
+          material.opacity = 0.3;
+        }
+      });
     } else {
-      materials[4].color.set('#ffffff');
-      materials[0].color.set(data.color);
+      materials.forEach((material, index) => {
+        if (index !== 4) { // 앞면(4번)을 제외한 나머지만 opacity 변경
+          material.opacity = 0.3;
+        }
+      });
     }
-  }, [hovered, data.color]);
+  }, [hovered]);
 
   // 포지션과 로테이션에 대한 스프링 애니메이션 추가
   const { springPosition, springRotation, springScale } = useSpring({
@@ -187,8 +191,7 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, o
 
         return 3 * t0 * t0 * (1 - t0) * y1 + 3 * t0 * (1 - t0) * (1 - t0) * y2 + t0 * t0 * t0;
       }
-    },
-    immediate: !isFiltered // 필터링되지 않은 상태에서는 즉시 적용
+    }
   });
 
   // useFrame에서 스크롤 위치 즉시 업데이트 제거
@@ -204,32 +207,13 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, o
       if (elapsedTime >= transitionDelay) {
         const animationProgress = Math.min((elapsedTime - transitionDelay) * 2, 1);
         meshRef.current.position.y += delta * 3;
-        materials.forEach(material => {
-          material.opacity = 1 - animationProgress;
-        });
       }
-    } else {
+    } else if (startTimeRef.current !== null) {
       startTimeRef.current = null;
-      if (meshRef.current) {
-        materials.forEach(material => {
-          material.opacity = 1;
-        });
-      }
     }
   });
 
-  // 브라우저 크기에 따른 카드 크기 계산
-  const cardScale = useMemo(() => {
-    const aspectRatio = size.width / size.height;
-    const baseScale = 1;
-    
-    // 화면이 작아질수록 카드 크기도 줄임
-    const scale = aspectRatio < 1 
-      ? baseScale * Math.max(aspectRatio, 0.8) // 최소 0.7배로 제한
-      : baseScale;
-    
-    return [scale, scale * 1.3, 0.01]; // 원래 카드 비율 [1, 1.3, 0.02] 유지
-  }, [size.width, size.height]);
+  const cardScale = [1, 1.3, 0.02];
 
   return (
     <animated.mesh
@@ -240,18 +224,16 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, data, o
       onClick={handleClick}
       onPointerOver={handlePointerOver}
       onPointerOut={handlePointerOut}
-      renderOrder={isSelected ? 1 : -index}
       visible={!isOther && opacity > 0}
-      title={data.title}
     >
       <animated.group position-x={hover}>
         <Box args={cardScale}>
-          <meshPhysicalMaterial attach="material-0" {...materials[0]} />
-          <meshPhysicalMaterial attach="material-1" {...materials[1]} />
-          <meshPhysicalMaterial attach="material-2" {...materials[2]} />
-          <meshPhysicalMaterial attach="material-3" {...materials[3]} />
-          <meshPhysicalMaterial attach="material-4" {...materials[4]} />
-          <meshPhysicalMaterial attach="material-5" {...materials[5]} />
+          <meshStandardMaterial attach="material-0" {...materials[0]} />
+          <meshStandardMaterial attach="material-1" {...materials[1]} />
+          <meshStandardMaterial attach="material-2" {...materials[2]} />
+          <meshStandardMaterial attach="material-3" {...materials[3]} />
+          <meshStandardMaterial attach="material-4" {...materials[4]} />
+          <meshStandardMaterial attach="material-5" {...materials[5]} />
         </Box>
       </animated.group>
     </animated.mesh>
@@ -286,7 +268,6 @@ const GradientOverlay = () => {
   }, []);
 
   const scale = useMemo(() => {
-    // 화면 크기의 120%로 설정
     return [viewport.width * 1.5, viewport.height * 1.5, 1];
   }, [viewport.width, viewport.height]);
 
@@ -308,164 +289,128 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
   const [selectedCard, setSelectedCard] = useState(null);
   const { gl, size } = useThree();
   const animationStartTimeRef = useRef(null);
-  const [filterAnimationProgress, setFilterAnimationProgress] = useState(1);
-  const virtualScrollRef = useRef(0);
-  const lastDataIndexRef = useRef(0);
+  
+  // 필터링된 카드 데이터
+  const filteredCardData = useMemo(() => {
+    // 년도와 월이 모두 선택된 경우에만 필터링
+    if (!selectedYear || !selectedMonth) return cardData;
+    
+    return cardData.filter(card => 
+      card.year === selectedYear && card.month === selectedMonth
+    );
+  }, [selectedYear, selectedMonth]);
+
+  const totalCards = filteredCardData.length;
+  const isFiltered = selectedYear && selectedMonth;
+  const visibleRange = isFiltered ? 1 : 20; // 필터링 시 1개, 아닐 때 20개
+  const scrollRef = useRef(0);
+  const prevCardsRef = useRef([]);
 
   const calculateZoom = () => {
     const baseZoom = 300;
     const aspectRatio = size.width / size.height;
-    if (aspectRatio > 1) {
-      return baseZoom * Math.sqrt(aspectRatio);
-    }
-    return baseZoom;
+    return baseZoom * Math.sqrt(aspectRatio);
   };
 
   const calculateLayout = () => {
     const aspectRatio = size.width / size.height;
-    const isFiltered = selectedYear || selectedMonth;
     
-    const baseSpacing = isFiltered ? 0.15 : 0.4;
+    // 화면 크기에 따른 간격 계산을 부드럽게 조정
+    const maxWidth = 1920; // 최대 기준 화면 너비
+    const minWidth = 360;  // 최소 기준 화면 너비
+    const minSpacing = 0.3; // 최대 화면에서의 간격 (0.4에서 0.3으로 줄임)
+    const maxSpacing = 0.6; // 최소 화면에서의 간격 (0.8에서 0.6으로 줄임)
     
-    const xSpacing = aspectRatio < 1 
-      ? baseSpacing * Math.max(aspectRatio, 0.75)
-      : baseSpacing * Math.min(aspectRatio, 2);
+    // 현재 화면 크기의 비율을 계산 (0~1)
+    const ratio = Math.max(0, Math.min(1, (maxWidth - size.width) / (maxWidth - minWidth)));
+    // 간격을 부드럽게 보간
+    const baseSpacing = minSpacing + (maxSpacing - minSpacing) * ratio;
     
-    const ySpacing = aspectRatio < 1
-      ? baseSpacing * Math.min(.75/aspectRatio, 2)
-      : baseSpacing;
+    const diagonalLength = Math.sqrt(1 + aspectRatio * aspectRatio);
+    const spacing = diagonalLength * baseSpacing;
+    
+    // z축 간격도 부드럽게 조정
+    const zSpacing = baseSpacing * (0.3 + ratio * 0.1);
     
     return {
-      x: xSpacing,
-      y: ySpacing,
-      z: baseSpacing * 0.3
+      x: spacing * aspectRatio / diagonalLength,
+      y: spacing / diagonalLength,
+      z: zSpacing
     };
   };
 
-  useEffect(() => {
-    const startTime = Date.now();
-    const duration = 800;
-
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      const eased = progress < 0.5
-        ? 4 * progress * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-      setFilterAnimationProgress(eased);
-
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
-    };
-
-    requestAnimationFrame(animate);
-  }, [selectedYear, selectedMonth]);
-
-  const filteredCardData = useMemo(() => {
-    return cardData.filter(card => {
-      if (selectedYear && card.year !== selectedYear) return false;
-      if (selectedMonth && card.month !== selectedMonth) return false;
-      return true;
-    });
-  }, [selectedYear, selectedMonth]);
-
-  const calculateStackPosition = (index, offset) => {
+  const calculateStackPosition = (index) => {
     const layout = calculateLayout();
-    const totalCards = cardData.length;
-    const visibleRange = 5;
-    
-    // 가상 스크롤 위치 계산
-    const virtualScroll = virtualScrollRef.current;
-    let adjustedOffset = ((virtualScroll + index) % totalCards + totalCards) % totalCards;
-    let position = adjustedOffset;
-    
-    if (position > visibleRange) {
-      position -= totalCards;
-    } else if (position < -visibleRange) {
-      position += totalCards;
-    }
-
-    const isFiltered = selectedYear || selectedMonth;
-    const defaultPosition = position;
-    let filteredPosition = position;
+    const position = index;
     
     if (isFiltered) {
-      const filteredIndex = filteredCardData.findIndex(card => card.id === cardData[index].id);
-      if (filteredIndex !== -1) {
-        const centerOffset = -(filteredCardData.length - 1) / 2;
-        filteredPosition = filteredIndex + centerOffset;
-      } else {
-        filteredPosition = position * 3;
-      }
+      return {
+        position: [0, 0, -2], // 필터링 시 중앙에 위치
+        rotation: [0.25, Math.PI * -0.15, 0],
+        opacity: 1
+      };
     }
 
-    const interpolatedPosition = {
-      x: defaultPosition * layout.x * (1 - filterAnimationProgress) + filteredPosition * layout.x * filterAnimationProgress,
-      y: defaultPosition * layout.y * (1 - filterAnimationProgress) + filteredPosition * layout.y * 0.8 * filterAnimationProgress,
-      z: -Math.abs(defaultPosition) * layout.z * (1 - filterAnimationProgress) + -Math.abs(filteredPosition) * layout.z * filterAnimationProgress
-    };
-
-    const cardOpacity = isFiltered ? 
-      (filteredCardData.some(card => card.id === cardData[index].id) ? 1 : 0) : 
-      1;
+    // 필터링되지 않았을 때는 기존 대각선 배치
+    const aspectRatio = size.width / size.height;
+    const startX = -aspectRatio * 1.5;
+    const startY = -1.5;
     
     return {
       position: [
-        interpolatedPosition.x,
-        interpolatedPosition.y,
-        interpolatedPosition.z
+        startX + position * layout.x,
+        startY + position * layout.y,
+        -Math.abs(position) * layout.z - 2
       ],
       rotation: [0.25, Math.PI * -0.15, 0],
-      opacity: cardOpacity
+      opacity: 1
     };
   };
 
+  // 동적 카드 생성 로직 수정
   const cards = useMemo(() => {
-    return cardData.map((data, i) => {
-      const cardPosition = calculateStackPosition(i, scrollOffset);
-      return {
+    const currentIndex = Math.floor(scrollRef.current);
+    const start = currentIndex - Math.floor(visibleRange / 2);
+    const end = currentIndex + Math.ceil(visibleRange / 2);
+    
+    const cardArray = [];
+    
+    for (let i = start; i < end; i++) {
+      const normalizedIndex = ((i % totalCards) + totalCards) % totalCards;
+      const cardPosition = calculateStackPosition(i - scrollRef.current);
+      
+      const prevCard = prevCardsRef.current.find(
+        card => card.normalizedIndex === normalizedIndex
+      );
+      
+      cardArray.push({
         ...cardPosition,
-        index: i,
-        data: data,
-        zPosition: cardPosition.position[2]
-      };
-    })
-    .sort((a, b) => b.zPosition - a.zPosition)
-    .map((card, displayIndex) => ({
-      ...card,
-      displayIndex
-    }));
-  }, [scrollOffset, filterAnimationProgress]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setScrollOffset(prev => prev + 0.0001);
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+        index: normalizedIndex,
+        normalizedIndex,
+        displayIndex: i - start,
+        absoluteIndex: i,
+        zPosition: cardPosition.position[2],
+        prevPosition: prevCard ? prevCard.position : cardPosition.position
+      });
+    }
+    
+    const sortedCards = cardArray.sort((a, b) => b.zPosition - a.zPosition);
+    prevCardsRef.current = sortedCards;
+    
+    return sortedCards;
+  }, [scrollOffset, size.width, size.height, totalCards]);
 
   const handleWheel = (e) => {
     if (selectedCard !== null) return;
     e.preventDefault();
     
-    // 가상 스크롤 업데이트
-    virtualScrollRef.current += e.deltaY * 0.001;
+    const delta = e.deltaY * 0.001;
+    scrollRef.current += delta;
     
-    // 실제 스크롤 오프셋 업데이트
-    setScrollOffset(prev => prev + e.deltaY * 0.001);
-    
-    // 데이터 순환을 위한 인덱스 계산
-    const totalCards = cardData.length;
-    const currentIndex = Math.floor(Math.abs(virtualScrollRef.current)) % totalCards;
-    
-    if (currentIndex !== lastDataIndexRef.current) {
-      lastDataIndexRef.current = currentIndex;
-    }
+    // 부드러운 스크롤을 위해 requestAnimationFrame 사용
+    requestAnimationFrame(() => {
+      setScrollOffset(prev => prev + delta);
+    });
   };
 
   useEffect(() => {
@@ -486,6 +431,12 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
     return Math.max(0, (displayIndex - 2)) * 0.05;
   };
 
+  // 필터 변경시 스크롤 초기화
+  useEffect(() => {
+    scrollRef.current = 0;
+    setScrollOffset(0);
+  }, [selectedYear, selectedMonth]);
+
   return (
     <>
       <color attach="background" args={['#FFFFFF']} />
@@ -500,13 +451,14 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
       <directionalLight position={[0, 5, 5]} intensity={1} />
       {cards.map((card) => (
         <Card
-          key={card.index}
+          key={`${card.normalizedIndex}-${card.absoluteIndex}`}
           {...card}
           isSelected={selectedCard === card.index}
           isOther={selectedCard !== null && selectedCard !== card.index}
           onClick={() => setSelectedCard(selectedCard === card.index ? null : card.index)}
           isTransitioning={isTransitioning}
           transitionDelay={getTransitionDelay(card.displayIndex)}
+          data={filteredCardData[card.index]}
         />
       ))}
       <GradientOverlay />
