@@ -23,20 +23,24 @@ const GalleryPage = () => {
   };
 
   return (
-    <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
+    <div style={{ width: '100vw', height: 'calc(100vh - 64px)', position: 'relative' }}>
       <div style={{ 
+        height: '64px',
+        width: '100vw',
         position: 'fixed', 
-        top: '20px', 
+        top: '0', 
         left: '50%', 
         transform: 'translateX(-50%)',
         zIndex: 1000,
         display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
         gap: '20px',
         alignItems: 'center',
         background: 'rgba(255, 255, 255, 0.9)',
-        padding: '15px',
+        padding: '8px',
         borderRadius: '10px',
-        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+        borderBottom: '1px solid #ddd',
       }}>
         <CardFilter 
           onFilterChange={handleFilterChange}

@@ -1,64 +1,136 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useSpring, animated, config } from '@react-spring/three';
 import { Box, Environment, OrthographicCamera, Plane } from '@react-three/drei';
 import * as THREE from 'three';
 import { cardData } from '../data/cardData';
 
+// 이미지에서 주요 색상을 추출하는 함수
+const extractColors = (image) => {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  context.drawImage(image, 0, 0);
+  
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const colorCounts = {};
+  
+  // 픽셀 데이터를 5픽셀 간격으로 샘플링하여 성능 최적화
+  for(let i = 0; i < pixels.length; i += 4 * 5) {
+    const r = pixels[i];
+    const g = pixels[i + 1];
+    const b = pixels[i + 2];
+    const rgb = `${r},${g},${b}`;
+    colorCounts[rgb] = (colorCounts[rgb] || 0) + 1;
+  }
+  
+  // 가장 많이 사용된 색상 2개 추출
+  const sortedColors = Object.entries(colorCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 2)
+    .map(([color]) => color.split(',').map(Number));
+  
+  return sortedColors;
+};
+
 const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity = 1, isTransitioning, transitionDelay, data }) => {
   const meshRef = useRef(null);
   const startTimeRef = useRef(null);
   const [hovered, setHovered] = useState(false);
+  const [dominantColors, setDominantColors] = useState(null);
+  const materialsRef = useRef(null);
   const { gl } = useThree();
 
-  // 스처와 메테리얼을 useMemo로 최적화
-  const materials = useMemo(() => {
-    const glassMaterial = new THREE.MeshStandardMaterial({
-      color: '#ffffff',
-      transparent: true,
-      opacity: 0.3,
-      side: THREE.DoubleSide,
-      roughness: .2,
-      metalness: .5,
-      depthWrite: false,
-      envMapIntensity: 1
-    });
-
-    // 앞면 재질에 이미지와 알파 마스크 적용
-    const frontMaterial = new THREE.MeshStandardMaterial({
-      transparent: true,
-      opacity: 1,
-      side: THREE.FrontSide,
-      roughness: 1,
-      metalness: 0,
-      depthWrite: false,
-      envMapIntensity: .5
-    });
-
-    if (data) {
-      const textureLoader = new THREE.TextureLoader();
-      const texture = textureLoader.load(data.coverImg);
-      const alphaTexture = textureLoader.load('/images/alpha.png');
-      
-      // 텍스처 설정 개선
-      texture.encoding = THREE.sRGBEncoding;
-      texture.minFilter = THREE.LinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.generateMipmaps = false;
-      
-      frontMaterial.map = texture;
-      frontMaterial.alphaMap = alphaTexture;
+  // 그라디언트 텍스처 생성 함수
+  const createGradientTexture = useCallback((colors) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    
+    const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+    if (colors && colors.length >= 2) {
+      gradient.addColorStop(0, `rgb(${colors[0].join(',')})`);
+      gradient.addColorStop(1, `rgb(${colors[1].join(',')})`);
+    } else {
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(1, '#f0f0f0');
     }
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 256, 256);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }, []);
 
-    return [
-      glassMaterial, // right
-      glassMaterial, // left
-      glassMaterial, // top
-      glassMaterial, // bottom
-      frontMaterial, // front
-      glassMaterial  // back
-    ];
-  }, [data]);
+  // 초기 materials 생성
+  useEffect(() => {
+    if (!materialsRef.current) {
+      const gradientTexture = createGradientTexture(null);
+      
+      const sideMaterial = new THREE.MeshStandardMaterial({
+        map: gradientTexture,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+        roughness: 0.1,
+        metalness: 0.5,
+        depthWrite: false,
+        envMapIntensity: 0.5
+      });
+
+      const frontMaterial = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 1,
+        side: THREE.FrontSide,
+        depthWrite: true,
+      });
+
+      materialsRef.current = [
+        sideMaterial, // right
+        sideMaterial, // left
+        sideMaterial, // top
+        sideMaterial, // bottom
+        frontMaterial, // front
+        sideMaterial  // back
+      ];
+
+      if (data) {
+        const textureLoader = new THREE.TextureLoader();
+        const texture = textureLoader.load(data.coverImg, (loadedTexture) => {
+          const image = loadedTexture.image;
+          const colors = extractColors(image);
+          setDominantColors(colors);
+        });
+        const alphaTexture = textureLoader.load('/images/alpha.png');
+        
+        texture.encoding = THREE.sRGBEncoding;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = true;
+        texture.anisotropy = gl.capabilities.getMaxAnisotropy();
+        
+        frontMaterial.map = texture;
+        frontMaterial.alphaMap = alphaTexture;
+      }
+    }
+  }, [data, createGradientTexture, gl]);
+
+  // dominantColors가 변경될 때만 사이드 재질 업데이트
+  useEffect(() => {
+    if (materialsRef.current && dominantColors) {
+      const gradientTexture = createGradientTexture(dominantColors);
+      materialsRef.current.forEach((material, index) => {
+        if (index !== 4) { // 앞면(4번)을 제외한 나머지만 업데이트
+          material.map = gradientTexture;
+          material.needsUpdate = true;
+        }
+      });
+    }
+  }, [dominantColors, createGradientTexture]);
 
   // hover 효과만을 위한 스프링
   const { hover } = useSpring({
@@ -69,6 +141,22 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
       friction: 60
     }
   });
+
+  useEffect(() => {
+    if (hovered) {
+      materialsRef.current.forEach((material, index) => {
+        if (index !== 4) {
+          material.opacity = 0.3;
+        }
+      });
+    } else {
+      materialsRef.current.forEach((material, index) => {
+        if (index !== 4) {
+          material.opacity = 0.6;
+        }
+      });
+    }
+  }, [hovered]);
 
   // 기본 위치는 애니메이션 없이 직접 설정
   const meshPosition = isSelected 
@@ -140,22 +228,6 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
     }
   }, [hovered, gl, data]);
 
-  useEffect(() => {
-    if (hovered) {
-      materials.forEach((material, index) => {
-        if (index !== 4) { // 앞면(4번)을 제외한 나머지만 opacity 변경
-          material.opacity = 0.3;
-        }
-      });
-    } else {
-      materials.forEach((material, index) => {
-        if (index !== 4) { // 앞면(4번)을 제외한 나머지만 opacity 변경
-          material.opacity = 0.3;
-        }
-      });
-    }
-  }, [hovered]);
-
   // 포지션과 로테이션에 대한 스프링 애니메이션 추가
   const { springPosition, springRotation, springScale } = useSpring({
     springPosition: position,
@@ -213,7 +285,7 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
     }
   });
 
-  const cardScale = [1, 1.3, 0.02];
+  const cardScale = [1, 1.3, 0.01];
 
   return (
     <animated.mesh
@@ -228,12 +300,13 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
     >
       <animated.group position-x={hover}>
         <Box args={cardScale}>
-          <meshStandardMaterial attach="material-0" {...materials[0]} />
-          <meshStandardMaterial attach="material-1" {...materials[1]} />
-          <meshStandardMaterial attach="material-2" {...materials[2]} />
-          <meshStandardMaterial attach="material-3" {...materials[3]} />
-          <meshStandardMaterial attach="material-4" {...materials[4]} />
-          <meshStandardMaterial attach="material-5" {...materials[5]} />
+          {materialsRef.current?.map((material, index) => 
+            index === 4 ? (
+              <meshBasicMaterial key={index} attach={`material-${index}`} {...material} />
+            ) : (
+              <meshStandardMaterial key={index} attach={`material-${index}`} {...material} />
+            )
+          )}
         </Box>
       </animated.group>
     </animated.mesh>
@@ -278,7 +351,7 @@ const GradientOverlay = () => {
         map={gradientTexture}
         depthTest={false}
         depthWrite={false}
-        opacity={0.8}
+        opacity={1}
       />
     </Plane>
   );
@@ -318,8 +391,8 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
     // 화면 크기에 따른 간격 계산을 부드럽게 조정
     const maxWidth = 1920; // 최대 기준 화면 너비
     const minWidth = 360;  // 최소 기준 화면 너비
-    const minSpacing = 0.3; // 최대 화면에서의 간격 (0.4에서 0.3으로 줄임)
-    const maxSpacing = 0.6; // 최소 화면에서의 간격 (0.8에서 0.6으로 줄임)
+    const minSpacing = 0.2; // 최대 화면에서의 간격 (0.3에서 0.2로 줄임)
+    const maxSpacing = 0.4; // 최소 화면에서의 간격 (0.6에서 0.4로 줄임)
     
     // 현재 화면 크기의 비율을 계산 (0~1)
     const ratio = Math.max(0, Math.min(1, (maxWidth - size.width) / (maxWidth - minWidth)));
@@ -404,7 +477,7 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
     if (selectedCard !== null) return;
     e.preventDefault();
     
-    const delta = e.deltaY * 0.001;
+    const delta = -e.deltaY * 0.0015;
     scrollRef.current += delta;
     
     // 부드러운 스크롤을 위해 requestAnimationFrame 사용
@@ -448,7 +521,7 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
         up={[0, 1, 0]}
       />
       <Environment preset="studio" intensity={1} />
-      <directionalLight position={[0, 5, 5]} intensity={1} />
+      <directionalLight position={[3, 8, 5]} intensity={20} />
       {cards.map((card) => (
         <Card
           key={`${card.normalizedIndex}-${card.absoluteIndex}`}

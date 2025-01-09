@@ -2,64 +2,87 @@ import React from 'react';
 import { cardData } from '../data/cardData';
 
 const CardFilter = ({ onFilterChange, selectedYear, selectedMonth }) => {
-  // 중복 제거된 연도와 월 목록 생성
   const years = [...new Set(cardData.map(card => card.year))].sort((a, b) => b - a);
-  const months = [...new Set(cardData.map(card => card.month))].sort((a, b) => b - a);
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
   const handleReset = () => {
     onFilterChange('reset', null);
   };
 
+  const textStyle = (isSelected) => ({
+    padding: '2px 8px',
+    color: isSelected ? '#000000' : '#999999',
+    cursor: 'pointer',
+    fontWeight: 'normal',
+    whiteSpace: 'nowrap',
+    fontSize: '14px',
+    lineHeight: '20px',
+    userSelect: 'none'
+  });
+
   return (
     <div style={{
+      height: '64px',
       display: 'flex',
-      gap: '20px',
-      alignItems: 'center'
+      alignItems: 'center',
+      width: '100%',
+      position: 'relative'
     }}>
-      <div>
-        <select 
-          value={selectedYear || ''} 
-          onChange={(e) => onFilterChange('year', e.target.value ? Number(e.target.value) : null)}
-          style={{
-            padding: '8px',
-            borderRadius: '5px',
-            border: '1px solid #ddd'
-          }}
-        >
-          <option value="">전체 연도</option>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        width: '100%',
+        overflowX: 'auto',
+        padding: '0 20px'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '16px',
+          minWidth: 'max-content'
+        }}>
           {years.map(year => (
-            <option key={year} value={year}>{year}년</option>
+            <span
+              key={year}
+              onClick={() => onFilterChange('year', year)}
+              style={textStyle(selectedYear === year)}
+            >
+              {year}년
+            </span>
           ))}
-        </select>
-      </div>
-      <div>
-        <select 
-          value={selectedMonth || ''} 
-          onChange={(e) => onFilterChange('month', e.target.value ? Number(e.target.value) : null)}
-          style={{
-            padding: '8px',
-            borderRadius: '5px',
-            border: '1px solid #ddd'
-          }}
-        >
-          <option value="">전체 월</option>
+        </div>
+        
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '16px',
+          minWidth: 'max-content'
+        }}>
           {months.map(month => (
-            <option key={month} value={month}>{month}월</option>
+            <span
+              key={month}
+              onClick={() => onFilterChange('month', month)}
+              style={textStyle(selectedMonth === month)}
+            >
+              {month}월
+            </span>
           ))}
-        </select>
+        </div>
       </div>
-      <button
+
+      <span
         onClick={handleReset}
         style={{
-          padding: '8px 16px',
-          borderRadius: '5px',
-          border: '1px solid #ddd',
-          background: 'rgba(255, 255, 255, 0.9)',
-          cursor: 'pointer'
+          ...textStyle(false),
+          position: 'absolute',
+          right: '20px',
+          color: '#999999',
+          textDecoration: 'underline'
         }}
       >
         초기화
-      </button>
+      </span>
     </div>
   );
 };
