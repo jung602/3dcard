@@ -74,12 +74,12 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
       const sideMaterial = new THREE.MeshStandardMaterial({
         map: gradientTexture,
         transparent: true,
-        opacity: 0.6,
+        opacity: 1,
         side: THREE.DoubleSide,
         roughness: 0.1,
-        metalness: 0.5,
+        metalness: 1,
         depthWrite: false,
-        envMapIntensity: 0.5
+        envMapIntensity: 1.5
       });
 
       const frontMaterial = new THREE.MeshBasicMaterial({
