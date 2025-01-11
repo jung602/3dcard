@@ -2,6 +2,8 @@ import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useSpring, animated, config } from '@react-spring/three';
 import { Box, Environment, OrthographicCamera, Plane } from '@react-three/drei';
+import { EffectComposer, Bloom, Noise } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import { cardData } from '../data/cardData';
 
@@ -71,15 +73,22 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
     if (!materialsRef.current) {
       const gradientTexture = createGradientTexture(null);
       
-      const sideMaterial = new THREE.MeshStandardMaterial({
+      const sideMaterial = new THREE.MeshPhysicalMaterial({
         map: gradientTexture,
         transparent: true,
         opacity: 1,
         side: THREE.DoubleSide,
-        roughness: 0.1,
-        metalness: 1,
-        depthWrite: false,
-        envMapIntensity: 1.5
+        roughness: 0,
+        metalness: .5,
+        transmission: 1,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0,
+        ior: .2,
+        thickness: 1,
+        attenuationDistance: 1,
+        reflectivity: 1,
+        envMapIntensity: 1,
+        depthWrite: false
       });
 
       const frontMaterial = new THREE.MeshBasicMaterial({
@@ -89,13 +98,28 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
         depthWrite: true,
       });
 
+      const backMaterial = new THREE.MeshPhysicalMaterial({
+        transparent: true,
+        opacity: 1,
+        side: THREE.BackSide,
+        roughness: 0,
+        metalness: 0.5,
+        transmission: 0.5,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0,
+        ior: 1.5,
+        reflectivity: 1,
+        envMapIntensity: 2,
+        depthWrite: true,
+      });
+
       materialsRef.current = [
         sideMaterial, // right
         sideMaterial, // left
         sideMaterial, // top
         sideMaterial, // bottom
         frontMaterial, // front
-        sideMaterial  // back
+        backMaterial  // back
       ];
 
       if (data) {
@@ -104,6 +128,16 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
           const image = loadedTexture.image;
           const colors = extractColors(image);
           setDominantColors(colors);
+
+          // 추출된 색상으로 뒷면 컬러 설정
+          if (colors && colors.length > 0) {
+            const [r, g, b] = colors[0];
+            backMaterial.color = new THREE.Color(r/255, g/255, b/255);
+            // 뒷면 텍스처 블렌딩 모드 설정
+            backMaterial.map = texture;
+            backMaterial.map.encoding = THREE.sRGBEncoding;
+            backMaterial.blending = THREE.MultiplyBlending;
+          }
         });
         const alphaTexture = textureLoader.load('/images/alpha.png');
         
@@ -113,6 +147,7 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
         texture.generateMipmaps = true;
         texture.anisotropy = gl.capabilities.getMaxAnisotropy();
         
+        // 앞면 텍스처 적용
         frontMaterial.map = texture;
         frontMaterial.alphaMap = alphaTexture;
       }
@@ -125,7 +160,12 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
       const gradientTexture = createGradientTexture(dominantColors);
       materialsRef.current.forEach((material, index) => {
         if (index !== 4) { // 앞면(4번)을 제외한 나머지만 업데이트
-          material.map = gradientTexture;
+          if (index === 5) { // 뒷면인 경우
+            const [r, g, b] = dominantColors[0];
+            material.color = new THREE.Color(r/255, g/255, b/255);
+          } else { // 측면인 경우
+            material.map = gradientTexture;
+          }
           material.needsUpdate = true;
         }
       });
@@ -285,7 +325,7 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
     }
   });
 
-  const cardScale = [1, 1.3, 0.01];
+  const cardScale = [1, 1.3, 0.015];
 
   return (
     <animated.mesh
@@ -301,10 +341,10 @@ const Card = ({ position, rotation, index, isSelected, onClick, isOther, opacity
       <animated.group position-x={hover}>
         <Box args={cardScale}>
           {materialsRef.current?.map((material, index) => 
-            index === 4 ? (
+            index === 4 || index === 5 ? (
               <meshBasicMaterial key={index} attach={`material-${index}`} {...material} />
             ) : (
-              <meshStandardMaterial key={index} attach={`material-${index}`} {...material} />
+              <meshPhysicalMaterial key={index} attach={`material-${index}`} {...material} />
             )
           )}
         </Box>
@@ -329,7 +369,7 @@ const GradientOverlay = () => {
     
     gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
     gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0)');
-    gradient.addColorStop(0.85, 'rgba(255, 255, 255, 0.5)');
+    gradient.addColorStop(0.85, 'rgba(255, 255, 255, 0.2)');
     gradient.addColorStop(1, 'rgba(255, 255, 255, 1)');
     
     ctx.fillStyle = gradient;
@@ -380,30 +420,22 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
   const prevCardsRef = useRef([]);
 
   const calculateZoom = () => {
-    const baseZoom = 300;
     const aspectRatio = size.width / size.height;
+    const baseZoom = Math.min(size.width, size.height) * 0.3; // 화면 크기에 비례하여 줌 조절
     return baseZoom * Math.sqrt(aspectRatio);
   };
 
   const calculateLayout = () => {
     const aspectRatio = size.width / size.height;
     
-    // 화면 크기에 따른 간격 계산을 부드럽게 조정
-    const maxWidth = 1920; // 최대 기준 화면 너비
-    const minWidth = 360;  // 최소 기준 화면 너비
-    const minSpacing = 0.2; // 최대 화면에서의 간격 (0.3에서 0.2로 줄임)
-    const maxSpacing = 0.4; // 최소 화면에서의 간격 (0.6에서 0.4로 줄임)
-    
-    // 현재 화면 크기의 비율을 계산 (0~1)
-    const ratio = Math.max(0, Math.min(1, (maxWidth - size.width) / (maxWidth - minWidth)));
-    // 간격을 부드럽게 보간
-    const baseSpacing = minSpacing + (maxSpacing - minSpacing) * ratio;
+    // 고정된 간격 사용
+    const baseSpacing = 0.45; // 고정된 간격 값
     
     const diagonalLength = Math.sqrt(1 + aspectRatio * aspectRatio);
     const spacing = diagonalLength * baseSpacing;
     
-    // z축 간격도 부드럽게 조정
-    const zSpacing = baseSpacing * (0.3 + ratio * 0.1);
+    // z축 간격 고정
+    const zSpacing = baseSpacing * 0.35;
     
     return {
       x: spacing * aspectRatio / diagonalLength,
@@ -520,8 +552,7 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
         rotation={[0, 0, 0]}
         up={[0, 1, 0]}
       />
-      <Environment preset="studio" intensity={1} />
-      <directionalLight position={[3, 8, 5]} intensity={20} />
+      <Environment preset="studio" intensity={10} />
       {cards.map((card) => (
         <Card
           key={`${card.normalizedIndex}-${card.absoluteIndex}`}
@@ -535,6 +566,18 @@ const Scene = ({ isTransitioning, selectedYear, selectedMonth }) => {
         />
       ))}
       <GradientOverlay />
+      <EffectComposer>
+        <Bloom
+          intensity={0.5}
+          luminanceThreshold={1.5}
+          luminanceSmoothing={1.5}
+          height={100}
+        />
+        <Noise
+          opacity={0.02}
+          blendFunction={BlendFunction.OVERLAY}
+        />
+      </EffectComposer>
     </>
   );
 };
